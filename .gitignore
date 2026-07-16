@@ -216,3 +216,13 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# AI prompt
+agent/
+# ROS 2 workspace outputs
+tello_ws/build/
+tello_ws/install/
+tello_ws/log/
+
+# Trained model weights
+tello_ws/src/tello_defect_pipeline/models/*.pth
