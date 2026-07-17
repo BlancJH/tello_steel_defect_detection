@@ -12,7 +12,12 @@ setup(
         ("share/" + package_name, ["package.xml"]),
         ("share/" + package_name + "/models", glob("models/*")),
     ],
-    install_requires=["setuptools"],
+    install_requires=[
+        "setuptools",
+        "numpy<2.0.0",
+        "opencv-python<4.12",
+        "djitellopy",
+    ],
     zip_safe=True,
     maintainer="Tello Defect Pipeline Maintainer",
     maintainer_email="user@example.com",
@@ -20,6 +25,8 @@ setup(
     license="MIT",
     tests_require=["pytest"],
     entry_points={
-        "console_scripts": [],
+        "console_scripts": [
+            "tello_bridge_node = tello_defect_pipeline.tello_bridge_node:main",
+        ],
     },
 )
