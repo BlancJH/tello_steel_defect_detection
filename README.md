@@ -77,7 +77,7 @@ q : quit controller
 
 Use the number row or numpad digits for `8`, `5`, `4`, and `6`. If the numpad does not respond, turn Num Lock on.
 
-The controller keeps publishing the last movement command until you choose another movement key, press `u` to take off into hover, press `j` to land, or quit. The keyboard controller terminal must stay focused.
+Movement keys are active only while held. When you release a movement key, terminal key repeat stops and the controller automatically returns to hover after a short timeout. Press `u` to take off into hover, press `j` to land, or press `q` to quit. The keyboard controller terminal must stay focused.
 
 To verify that keyboard commands are reaching ROS:
 
