@@ -38,6 +38,7 @@ class TelloBridgeNode(Node):
 
         self.tello: Optional[Tello] = None
         self.frame_reader = None
+        self.is_airborne = False
 
         self.image_publisher = self.create_publisher(Image, "/camera/image_raw", 10)
         self.cmd_subscription = self.create_subscription(
@@ -96,6 +97,9 @@ class TelloBridgeNode(Node):
             self.get_logger().warn("Ignoring /cmd_vel because Tello is not connected.")
             return
 
+        if not self.is_airborne:
+            return
+
         left_right = -_clamp_rc(msg.linear.y)
         forward_back = _clamp_rc(msg.linear.x)
         up_down = _clamp_rc(msg.linear.z)
@@ -115,6 +119,7 @@ class TelloBridgeNode(Node):
         self.get_logger().warn("Taking off Tello...")
         try:
             self.tello.takeoff()
+            self.is_airborne = True
             self.tello.send_rc_control(0, 0, 0, 0)
         except Exception as exc:  # noqa: BLE001 - takeoff should log and continue.
             self.get_logger().error(f"Failed to take off Tello: {exc}")
@@ -132,6 +137,7 @@ class TelloBridgeNode(Node):
         try:
             self.tello.send_rc_control(0, 0, 0, 0)
             self.tello.land()
+            self.is_airborne = False
         except Exception as exc:  # noqa: BLE001 - land should log and continue.
             self.get_logger().error(f"Failed to land Tello: {exc}")
 
@@ -142,11 +148,13 @@ class TelloBridgeNode(Node):
 
         self.get_logger().info("Stopping Tello bridge...")
         try:
-            self.tello.send_rc_control(0, 0, 0, 0)
+            if self.is_airborne:
+                self.tello.send_rc_control(0, 0, 0, 0)
             self.tello.streamoff()
         except Exception as exc:  # noqa: BLE001 - shutdown should log and continue.
             self.get_logger().warn(f"Error while stopping Tello: {exc}")
         finally:
+            self.is_airborne = False
             self.tello.end()
             self.tello = None
 
