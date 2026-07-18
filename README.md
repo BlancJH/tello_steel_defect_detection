@@ -21,3 +21,18 @@ source install/setup.bash
 export PYTHONPATH="$PWD/venv/lib/python3.12/site-packages:$PYTHONPATH"
 ros2 run tello_defect_pipeline tello_bridge_node
 ```
+
+```
+source /opt/ros/jazzy/setup.bash
+source venv/bin/activate
+source install/setup.bash
+export PYTHONPATH="$PWD/venv/lib/python3.12/site-packages:$PYTHONPATH"
+ros2 run tello_defect_pipeline tello_bridge_node
+```
+```
+source /opt/ros/jazzy/setup.bash
+source venv/bin/activate
+source install/setup.bash
+export PYTHONPATH="$PWD/venv/lib/python3.12/site-packages:$PYTHONPATH"
+ros2 run tello_defect_pipeline defect_detector_node --ros-args -p model_path:=/tello_ws/models/model.pth
+```
