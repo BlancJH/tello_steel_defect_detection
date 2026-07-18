@@ -17,6 +17,9 @@ setup(
         "numpy<2.0.0",
         "opencv-python<4.12",
         "djitellopy",
+        "torch",
+        "torchvision",
+        "segmentation-models-pytorch",
     ],
     zip_safe=True,
     maintainer="Tello Defect Pipeline Maintainer",
@@ -27,6 +30,7 @@ setup(
     entry_points={
         "console_scripts": [
             "tello_bridge_node = tello_defect_pipeline.tello_bridge_node:main",
+            "defect_detector_node = tello_defect_pipeline.defect_detector_node:main",
         ],
     },
 )
