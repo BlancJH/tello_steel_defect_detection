@@ -31,6 +31,7 @@ setup(
         "console_scripts": [
             "tello_bridge_node = tello_defect_pipeline.tello_bridge_node:main",
             "defect_detector_node = tello_defect_pipeline.defect_detector_node:main",
+            "tello_keyboard_controller_node = tello_defect_pipeline.tello_keyboard_controller_node:main",
         ],
     },
 )

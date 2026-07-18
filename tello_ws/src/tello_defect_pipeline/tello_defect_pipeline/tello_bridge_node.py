@@ -7,6 +7,7 @@ from typing import Optional
 import rclpy
 from djitellopy import Tello
 from geometry_msgs.msg import Twist
+from std_msgs.msg import Empty
 from rclpy.node import Node
 from sensor_msgs.msg import Image
 
@@ -43,6 +44,18 @@ class TelloBridgeNode(Node):
             Twist,
             "/cmd_vel",
             self.cmd_vel_callback,
+            10,
+        )
+        self.takeoff_subscription = self.create_subscription(
+            Empty,
+            "/tello/takeoff",
+            self.takeoff_callback,
+            10,
+        )
+        self.land_subscription = self.create_subscription(
+            Empty,
+            "/tello/land",
+            self.land_callback,
             10,
         )
         self.timer = self.create_timer(1.0 / 30.0, self.publish_frame)
@@ -83,12 +96,44 @@ class TelloBridgeNode(Node):
             self.get_logger().warn("Ignoring /cmd_vel because Tello is not connected.")
             return
 
-        left_right = _clamp_rc(msg.linear.y)
+        left_right = -_clamp_rc(msg.linear.y)
         forward_back = _clamp_rc(msg.linear.x)
         up_down = _clamp_rc(msg.linear.z)
-        yaw = _clamp_rc(msg.angular.z)
+        yaw = -_clamp_rc(msg.angular.z)
 
         self.tello.send_rc_control(left_right, forward_back, up_down, yaw)
+
+    def takeoff_callback(self, msg: Empty) -> None:
+        """Take off and hover when requested by the custom controller."""
+        del msg
+        if self.tello is None:
+            self.get_logger().warn(
+                "Ignoring takeoff command because Tello is not connected."
+            )
+            return
+
+        self.get_logger().warn("Taking off Tello...")
+        try:
+            self.tello.takeoff()
+            self.tello.send_rc_control(0, 0, 0, 0)
+        except Exception as exc:  # noqa: BLE001 - takeoff should log and continue.
+            self.get_logger().error(f"Failed to take off Tello: {exc}")
+
+    def land_callback(self, msg: Empty) -> None:
+        """Land the Tello when requested by the custom controller."""
+        del msg
+        if self.tello is None:
+            self.get_logger().warn(
+                "Ignoring land command because Tello is not connected."
+            )
+            return
+
+        self.get_logger().warn("Landing Tello...")
+        try:
+            self.tello.send_rc_control(0, 0, 0, 0)
+            self.tello.land()
+        except Exception as exc:  # noqa: BLE001 - land should log and continue.
+            self.get_logger().error(f"Failed to land Tello: {exc}")
 
     def shutdown(self) -> None:
         """Stop motion and release the Tello connection."""
