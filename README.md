@@ -21,6 +21,38 @@ colcon build --symlink-install
 source install/setup.bash
 ```
 
+## Launch Everything
+
+Open the full pipeline in four terminals:
+
+```bash
+cd ~/tello_steel_defect_detection
+./scripts/run_pipeline.sh
+```
+
+The launcher starts:
+
+```text
+tello_bridge_node
+defect_detector_node
+rqt_image_view /defect_detections/image
+tello_keyboard_controller_node
+```
+
+The default model path is relative to the repo:
+
+```text
+tello_ws/src/tello_defect_pipeline/models/model.pth
+```
+
+Optional local overrides can go in `.env`:
+
+```bash
+cp .env.example .env
+```
+
+Then edit values such as `MODEL_PATH` or `MOVEMENT_TIMEOUT`.
+
 ## Run The Pipeline
 
 Use separate terminals for each long-running command. Source the workspace setup in every terminal.
