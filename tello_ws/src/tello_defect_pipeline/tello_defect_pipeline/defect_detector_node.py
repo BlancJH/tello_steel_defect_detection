@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from contextlib import nullcontext
 from pathlib import Path
+import pickle
 from typing import Optional
 
 import cv2
@@ -13,7 +14,6 @@ from ament_index_python.packages import (
     PackageNotFoundError,
     get_package_share_directory,
 )
-from cv_bridge import CvBridge, CvBridgeError
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from sensor_msgs.msg import Image
@@ -47,6 +47,42 @@ CLASS_COLORS = np.array(
 )
 
 
+def _image_msg_to_bgr_frame(msg: Image) -> np.ndarray:
+    """Convert bgr8/rgb8 ROS Image data into a BGR OpenCV frame."""
+    if msg.encoding not in {"bgr8", "rgb8"}:
+        raise ValueError(f"Unsupported image encoding: {msg.encoding}")
+
+    expected_step = msg.width * 3
+    if msg.step < expected_step:
+        raise ValueError(
+            f"Image step {msg.step} is smaller than expected {expected_step}."
+        )
+
+    image = np.frombuffer(msg.data, dtype=np.uint8)
+    expected_size = msg.height * msg.step
+    if image.size < expected_size:
+        raise ValueError("Image data is shorter than height * step.")
+
+    image = image[:expected_size].reshape((msg.height, msg.step))
+    frame = image[:, :expected_step].reshape((msg.height, msg.width, 3))
+    if msg.encoding == "rgb8":
+        frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+    return frame.copy()
+
+
+def _bgr_frame_to_image_msg(frame: np.ndarray) -> Image:
+    """Convert a contiguous BGR image into a ROS Image message."""
+    contiguous = frame if frame.flags["C_CONTIGUOUS"] else frame.copy()
+    msg = Image()
+    msg.height = contiguous.shape[0]
+    msg.width = contiguous.shape[1]
+    msg.encoding = "bgr8"
+    msg.is_bigendian = False
+    msg.step = contiguous.shape[1] * 3
+    msg.data = contiguous.tobytes()
+    return msg
+
+
 def _default_model_path() -> str:
     """Return the installed model path, with a source-tree fallback."""
     try:
@@ -62,7 +98,6 @@ class DefectDetectorNode(Node):
     def __init__(self) -> None:
         super().__init__("defect_detector_node")
 
-        self.bridge = CvBridge()
         self.model = None
         self.device = None
         self.preprocess = None
@@ -149,7 +184,22 @@ class DefectDetectorNode(Node):
         if not model_path.is_file():
             raise FileNotFoundError(f"Model weights not found: {model_path}")
 
-        checkpoint = torch.load(model_path, map_location=self.device)
+        try:
+            checkpoint = torch.load(
+                model_path,
+                map_location=self.device,
+                weights_only=True,
+            )
+        except pickle.UnpicklingError:
+            self.get_logger().warn(
+                "Checkpoint requires legacy pickle loading; only use trusted model "
+                "files because weights_only=False can execute arbitrary code."
+            )
+            checkpoint = torch.load(
+                model_path,
+                map_location=self.device,
+                weights_only=False,
+            )
         if isinstance(checkpoint, dict):
             state_dict = (
                 checkpoint.get("state_dict")
@@ -172,8 +222,8 @@ class DefectDetectorNode(Node):
     def image_callback(self, msg: Image) -> None:
         """Annotate each camera frame and publish the result."""
         try:
-            frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
-        except CvBridgeError as exc:
+            frame = _image_msg_to_bgr_frame(msg)
+        except ValueError as exc:
             self.get_logger().error(f"Failed to convert ROS image: {exc}")
             return
 
@@ -193,12 +243,7 @@ class DefectDetectorNode(Node):
                 cv2.LINE_AA,
             )
 
-        try:
-            image_msg = self.bridge.cv2_to_imgmsg(annotated, encoding="bgr8")
-        except CvBridgeError as exc:
-            self.get_logger().error(f"Failed to convert annotated image: {exc}")
-            return
-
+        image_msg = _bgr_frame_to_image_msg(annotated)
         image_msg.header = msg.header
         self.image_publisher.publish(image_msg)
 

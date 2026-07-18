@@ -5,11 +5,23 @@ from __future__ import annotations
 from typing import Optional
 
 import rclpy
-from cv_bridge import CvBridge
 from djitellopy import Tello
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
 from sensor_msgs.msg import Image
+
+
+def _bgr_frame_to_image_msg(frame) -> Image:
+    """Convert a contiguous BGR image into a ROS Image message."""
+    contiguous = frame if frame.flags["C_CONTIGUOUS"] else frame.copy()
+    msg = Image()
+    msg.height = contiguous.shape[0]
+    msg.width = contiguous.shape[1]
+    msg.encoding = "bgr8"
+    msg.is_bigendian = False
+    msg.step = contiguous.shape[1] * 3
+    msg.data = contiguous.tobytes()
+    return msg
 
 
 def _clamp_rc(value: float) -> int:
@@ -23,7 +35,6 @@ class TelloBridgeNode(Node):
     def __init__(self) -> None:
         super().__init__("tello_bridge_node")
 
-        self.bridge = CvBridge()
         self.tello: Optional[Tello] = None
         self.frame_reader = None
 
@@ -61,7 +72,7 @@ class TelloBridgeNode(Node):
             )
             return
 
-        image_msg = self.bridge.cv2_to_imgmsg(frame, encoding="bgr8")
+        image_msg = _bgr_frame_to_image_msg(frame)
         image_msg.header.stamp = self.get_clock().now().to_msg()
         image_msg.header.frame_id = "tello_camera"
         self.image_publisher.publish(image_msg)
