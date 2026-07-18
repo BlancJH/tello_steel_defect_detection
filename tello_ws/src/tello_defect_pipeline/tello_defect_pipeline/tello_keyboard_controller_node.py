@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import select
+import time
 import sys
 import termios
 import tty
@@ -31,6 +32,7 @@ d : yaw right
 
 q : quit controller
 
+Movement keys are active only while held.
 Keep this terminal focused while flying.
 """
 
@@ -70,17 +72,20 @@ class TelloKeyboardControllerNode(Node):
         self.declare_parameter("linear_speed", 0.35)
         self.declare_parameter("vertical_speed", 0.45)
         self.declare_parameter("yaw_speed", 0.55)
-        self.declare_parameter("publish_rate", 10.0)
+        self.declare_parameter("publish_rate", 20.0)
+        self.declare_parameter("movement_timeout", 0.25)
 
         self.linear_speed = self.get_parameter("linear_speed").value
         self.vertical_speed = self.get_parameter("vertical_speed").value
         self.yaw_speed = self.get_parameter("yaw_speed").value
         publish_rate = self.get_parameter("publish_rate").value
+        self.movement_timeout = self.get_parameter("movement_timeout").value
 
         self.cmd_publisher = self.create_publisher(Twist, "/cmd_vel", 10)
         self.takeoff_publisher = self.create_publisher(Empty, "/tello/takeoff", 10)
         self.land_publisher = self.create_publisher(Empty, "/tello/land", 10)
         self.current_command = VelocityCommand()
+        self.last_movement_time: Optional[float] = None
         self.timer = self.create_timer(
             1.0 / publish_rate,
             self.publish_current_command,
@@ -129,11 +134,13 @@ class TelloKeyboardControllerNode(Node):
 
     def set_command(self, command: VelocityCommand, label: str) -> None:
         self.current_command = command
+        self.last_movement_time = time.monotonic()
         self.publish_current_command()
-        self.get_logger().info(f"Command: {label}")
+        self.get_logger().info(f"Command while held: {label}")
 
     def hover(self) -> None:
         self.current_command = VelocityCommand()
+        self.last_movement_time = None
         self.publish_current_command()
         self.get_logger().info("Command: hover")
 
@@ -143,6 +150,12 @@ class TelloKeyboardControllerNode(Node):
         self.get_logger().warn("Takeoff command published on /tello/takeoff.")
 
     def publish_current_command(self) -> None:
+        if self.last_movement_time is not None:
+            elapsed = time.monotonic() - self.last_movement_time
+            if elapsed > self.movement_timeout:
+                self.current_command = VelocityCommand()
+                self.last_movement_time = None
+
         msg = Twist()
         msg.linear.x = self.current_command.linear_x
         msg.linear.y = self.current_command.linear_y
