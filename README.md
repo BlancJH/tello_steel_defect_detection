@@ -133,7 +133,7 @@ That repository focuses on semantic segmentation for steel surface defects, with
 
 ## Workspace Setup
 
-Run from the workspace directory:
+Use this setup in any terminal where you run ROS commands manually:
 
 ```bash
 cd ~/tello_steel_defect_detection/tello_ws
@@ -143,23 +143,23 @@ source install/setup.bash
 export PYTHONPATH="$PWD/venv/lib/python3.12/site-packages:$PYTHONPATH"
 ```
 
-Build after code or dependency changes:
+Rebuild after code, launch file, or dependency changes:
 
 ```bash
 colcon build --symlink-install
 source install/setup.bash
 ```
 
-## Launch Everything
+## Primary Startup
 
-Open the full pipeline in four terminals:
+The recommended day-to-day startup method is the convenience launcher:
 
 ```bash
 cd ~/tello_steel_defect_detection
 ./scripts/run_pipeline.sh
 ```
 
-The launcher starts:
+The script opens separate terminal windows for:
 
 ```text
 tello_bridge_node
@@ -168,7 +168,9 @@ rqt_image_view /defect_detections/image
 tello_keyboard_controller_node
 ```
 
-The default model path is relative to the repo:
+This is the easiest way to run the full live Tello workflow because the keyboard controller gets its own focused terminal.
+
+The default model path is:
 
 ```text
 tello_ws/src/tello_defect_pipeline/models/model.pth
@@ -182,35 +184,65 @@ cp .env.example .env
 
 Then edit values such as `MODEL_PATH` or `MOVEMENT_TIMEOUT`.
 
+## ROS 2 Launch Files
+
+ROS launch files are provided as the ROS-native interface for benchmarking, debugging, and more portable startup. The launch files automatically prepend the workspace virtual environment `site-packages` directory to `PYTHONPATH` for the project nodes.
+
+Launch the live bridge, detector, and image viewer:
+
+```bash
+ros2 launch tello_defect_pipeline live_pipeline.launch.py model_path:=/absolute/path/to/model.pth device:=cuda
+```
+
+Launch the detector only, useful for benchmarking or debugging inference:
+
+```bash
+ros2 launch tello_defect_pipeline detector.launch.py model_path:=/absolute/path/to/model.pth device:=cuda
+```
+
+Launch keyboard teleoperation separately so the terminal can keep focus:
+
+```bash
+ros2 launch tello_defect_pipeline teleop.launch.py
+```
+
+Launch only the annotated image viewer:
+
+```bash
+ros2 launch tello_defect_pipeline visualization.launch.py
+```
+
+Useful launch arguments for `live_pipeline.launch.py`:
+
+| Argument | Default | Purpose |
+| --- | --- | --- |
+| `model_path` | installed package model path | Path to `model.pth`. |
+| `device` | empty | `cuda`, `cpu`, or empty for automatic selection. |
+| `benchmark_enabled` | `true` | Enables rolling FPS and latency logs. |
+| `benchmark_window` | `60` | Number of frames in the rolling benchmark window. |
+| `benchmark_log_interval_sec` | `5.0` | Seconds between benchmark log messages. |
+| `use_viewer` | `true` | Starts `rqt_image_view`. |
+| `use_keyboard` | `false` | Starts keyboard teleoperation inside the same launch process. Separate teleop is usually better for key focus. |
+| `movement_timeout` | `0.25` | Keyboard movement timeout in seconds. |
+
 ## Runtime Benchmarking
 
 `defect_detector_node` logs rolling runtime benchmarks while it is running. Benchmarking is enabled by default and reports the active device, annotated output FPS, end-to-end detection latency, and model inference latency.
 
-Run with the default device selection, which uses CUDA when available and falls back to CPU:
+The simplest benchmark path is to use the detector launch file:
 
 ```bash
-ros2 run tello_defect_pipeline defect_detector_node --ros-args -p model_path:=/absolute/path/to/model.pth
-```
-
-Force GPU benchmarking:
-
-```bash
-ros2 run tello_defect_pipeline defect_detector_node --ros-args -p device:=cuda -p model_path:=/absolute/path/to/model.pth
-```
-
-Force CPU benchmarking, if you want a baseline comparison:
-
-```bash
-ros2 run tello_defect_pipeline defect_detector_node --ros-args -p device:=cpu -p model_path:=/absolute/path/to/model.pth
+ros2 launch tello_defect_pipeline detector.launch.py model_path:=/absolute/path/to/model.pth device:=cuda
 ```
 
 Tune the rolling benchmark window and log interval:
 
 ```bash
-ros2 run tello_defect_pipeline defect_detector_node --ros-args \
-  -p model_path:=/absolute/path/to/model.pth \
-  -p benchmark_window:=120 \
-  -p benchmark_log_interval_sec:=10.0
+ros2 launch tello_defect_pipeline detector.launch.py \
+  model_path:=/absolute/path/to/model.pth \
+  device:=cuda \
+  benchmark_window:=120 \
+  benchmark_log_interval_sec:=10.0
 ```
 
 Example log output:
@@ -225,7 +257,7 @@ Observed CUDA benchmark with `models/model.pth`:
 | --- | ---: | ---: | ---: | ---: | ---: |
 | Sustained 30 FPS windows | 29.99 FPS avg, 29.84-30.17 FPS range | 5.8 ms avg | 35.5 ms peak | 6.3 ms avg | 9.1 ms peak |
 
-The first startup window reported 5.44 FPS and the final interrupted window reported 6.12 FPS which are taking off and landing. Those transient windows were excluded from the sustained FPS summary above. Early windows can also report `avg_inference_latency_ms=0.0` when no model inference has been triggered inside the rolling benchmark window.
+The first startup window reported 5.44 FPS and the final interrupted window reported 6.12 FPS during startup/shutdown transitions. Those transient windows were excluded from the sustained FPS summary above. Early windows can also report `avg_inference_latency_ms=0.0` when no model inference has been triggered inside the rolling benchmark window.
 
 Metric meanings:
 
@@ -234,45 +266,32 @@ Metric meanings:
 - `avg_inference_latency_ms`: average PyTorch model inference time only. CUDA is synchronized before and after inference so GPU timing is not underreported.
 - `max_*_latency_ms`: worst latency observed inside the rolling benchmark window.
 
-## Run The Pipeline
+## Debugging Commands
 
-Use separate terminals for each long-running command. Source the workspace setup in every terminal.
+Use these commands when you need to inspect individual ROS topics or run one part of the pipeline manually.
 
-Terminal 1, publish Tello camera frames and listen for `/cmd_vel`:
-
-```bash
-ros2 run tello_defect_pipeline tello_bridge_node
-```
-
-Terminal 2, run defect detection on the camera stream:
-
-```bash
-ros2 run tello_defect_pipeline defect_detector_node --ros-args -p model_path:=/home/blancjh/tello_steel_defect_detection/tello_ws/src/tello_defect_pipeline/models/model.pth
-```
-
-Terminal 3, view the annotated output:
-
-```bash
-ros2 run rqt_image_view rqt_image_view /defect_detections/image
-```
-
-Useful checks:
+Check topic rates and command messages:
 
 ```bash
 ros2 topic hz /camera/image_raw
 ros2 topic hz /defect_detections/image
 ros2 topic echo /cmd_vel
+ros2 topic echo /tello/takeoff
+ros2 topic echo /tello/land
+```
+
+Run individual nodes manually:
+
+```bash
+ros2 run tello_defect_pipeline tello_bridge_node
+ros2 run tello_defect_pipeline defect_detector_node --ros-args -p model_path:=/absolute/path/to/model.pth
+ros2 run rqt_image_view rqt_image_view /defect_detections/image
+ros2 run tello_defect_pipeline tello_keyboard_controller_node
 ```
 
 ## Custom Keyboard Teleoperation
 
-Run the project controller in its own focused terminal:
-
-```bash
-ros2 run tello_defect_pipeline tello_keyboard_controller_node
-```
-
-Controls:
+The primary launcher starts the project keyboard controller in its own focused terminal. The controller accepts these keys:
 
 ```text
 u : takeoff / hover
@@ -292,15 +311,7 @@ Use the number row or numpad digits for `8`, `5`, `4`, and `6`. If the numpad do
 
 Movement keys are active only while held. When you release a movement key, terminal key repeat stops and the controller automatically returns to hover after a short timeout. Press `u` to take off into hover, press `j` to land, or press `q` to quit. The keyboard controller terminal must stay focused.
 
-To verify that keyboard commands are reaching ROS:
-
-```bash
-ros2 topic echo /cmd_vel
-ros2 topic echo /tello/takeoff
-ros2 topic echo /tello/land
-```
-
-The Tello bridge converts `/cmd_vel` `geometry_msgs/Twist` messages into Tello RC commands and listens for `/tello/takeoff` and `/tello/land`.
+Use the topic checks in the debugging section to verify that keyboard commands are reaching ROS. The Tello bridge converts `/cmd_vel` `geometry_msgs/Twist` messages into Tello RC commands and listens for `/tello/takeoff` and `/tello/land`.
 
 ## Standard Keyboard Teleoperation
 
@@ -342,12 +353,10 @@ ros2 topic echo /cmd_vel
 
 ## Manual Scanning Workflow
 
-1. Start `tello_bridge_node`.
-2. Start `defect_detector_node`.
-3. Start `rqt_image_view` on `/defect_detections/image`.
-4. Start `tello_keyboard_controller_node` or gamepad teleop in a separate terminal.
-5. Fly slowly across the printed steel surface images.
-6. Watch the annotated output for target lock and defect segmentation.
+1. Start the full pipeline with `./scripts/run_pipeline.sh`.
+2. Confirm the annotated image viewer is receiving `/defect_detections/image`.
+3. Use `tello_keyboard_controller_node` or gamepad teleop to fly slowly across the printed steel surface images.
+4. Watch the annotated output for target lock and defect segmentation.
 
 ## Safety Notes
 
