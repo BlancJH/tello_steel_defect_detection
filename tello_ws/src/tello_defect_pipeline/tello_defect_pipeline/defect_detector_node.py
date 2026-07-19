@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from collections import deque
 from contextlib import nullcontext
 from pathlib import Path
 import pickle
+import time
 from typing import Optional
 
 import cv2
@@ -36,6 +38,8 @@ TARGET_ASPECT_MIN = 5.0
 TARGET_ASPECT_MAX = 7.5
 MASK_THRESHOLD = 0.5
 OVERLAY_ALPHA = 0.45
+DEFAULT_BENCHMARK_WINDOW = 60
+DEFAULT_BENCHMARK_LOG_INTERVAL_SEC = 5.0
 CLASS_COLORS = np.array(
     [
         (0, 0, 255),
@@ -106,11 +110,48 @@ class DefectDetectorNode(Node):
         self.declare_parameter("model_path", _default_model_path())
         default_device = self._default_device_name()
         self.declare_parameter("device", default_device)
+        self.declare_parameter("benchmark_enabled", True)
+        self.declare_parameter(
+            "benchmark_window",
+            DEFAULT_BENCHMARK_WINDOW,
+        )
+        self.declare_parameter(
+            "benchmark_log_interval_sec",
+            DEFAULT_BENCHMARK_LOG_INTERVAL_SEC,
+        )
 
         self.model_path = (
             self.get_parameter("model_path").get_parameter_value().string_value
         )
         device_name = self.get_parameter("device").get_parameter_value().string_value
+        self.benchmark_enabled = (
+            self.get_parameter("benchmark_enabled")
+            .get_parameter_value()
+            .bool_value
+        )
+        self.benchmark_window = max(
+            1,
+            self.get_parameter("benchmark_window")
+            .get_parameter_value()
+            .integer_value,
+        )
+        self.benchmark_log_interval_sec = max(
+            0.5,
+            self.get_parameter("benchmark_log_interval_sec")
+            .get_parameter_value()
+            .double_value,
+        )
+        self._latency_samples_ms: deque[float] = deque(
+            maxlen=self.benchmark_window
+        )
+        self._inference_samples_ms: deque[float] = deque(
+            maxlen=self.benchmark_window
+        )
+        self._publish_timestamps: deque[float] = deque(
+            maxlen=self.benchmark_window
+        )
+        self._last_benchmark_log_time = time.perf_counter()
+        self._last_inference_latency_ms: Optional[float] = None
 
         self._initialize_inference(device_name)
 
@@ -220,7 +261,10 @@ class DefectDetectorNode(Node):
         self.model.load_state_dict(cleaned_state_dict)
 
     def image_callback(self, msg: Image) -> None:
-        """Annotate each camera frame and publish the result."""
+        """Annotate each camera frame, publish the result, and track runtime stats."""
+        callback_start = time.perf_counter()
+        self._last_inference_latency_ms = None
+
         try:
             frame = _image_msg_to_bgr_frame(msg)
         except ValueError as exc:
@@ -246,6 +290,10 @@ class DefectDetectorNode(Node):
         image_msg = _bgr_frame_to_image_msg(annotated)
         image_msg.header = msg.header
         self.image_publisher.publish(image_msg)
+
+        if self.benchmark_enabled:
+            callback_latency_ms = (time.perf_counter() - callback_start) * 1000.0
+            self._record_benchmark_sample(callback_latency_ms)
 
     def process_frame(self, frame: np.ndarray) -> np.ndarray:
         """Find the target in a BGR frame and optionally run model inference."""
@@ -354,6 +402,57 @@ class DefectDetectorNode(Node):
 
         return None
 
+    def _record_benchmark_sample(self, callback_latency_ms: float) -> None:
+        now = time.perf_counter()
+        self._latency_samples_ms.append(callback_latency_ms)
+        self._publish_timestamps.append(now)
+        if self._last_inference_latency_ms is not None:
+            self._inference_samples_ms.append(self._last_inference_latency_ms)
+
+        if now - self._last_benchmark_log_time < self.benchmark_log_interval_sec:
+            return
+
+        self._last_benchmark_log_time = now
+        fps = self._rolling_fps()
+        avg_latency = self._average(self._latency_samples_ms)
+        max_latency = max(self._latency_samples_ms, default=0.0)
+        avg_inference = self._average(self._inference_samples_ms)
+        max_inference = max(self._inference_samples_ms, default=0.0)
+        device_name = str(self.device) if self.device is not None else "none"
+
+        self.get_logger().info(
+            "Benchmark "
+            f"device={device_name} "
+            f"published_fps={fps:.2f} "
+            f"avg_detection_latency_ms={avg_latency:.1f} "
+            f"max_detection_latency_ms={max_latency:.1f} "
+            f"avg_inference_latency_ms={avg_inference:.1f} "
+            f"max_inference_latency_ms={max_inference:.1f} "
+            f"samples={len(self._latency_samples_ms)}"
+        )
+
+    def _rolling_fps(self) -> float:
+        if len(self._publish_timestamps) < 2:
+            return 0.0
+        elapsed = self._publish_timestamps[-1] - self._publish_timestamps[0]
+        if elapsed <= 0.0:
+            return 0.0
+        return (len(self._publish_timestamps) - 1) / elapsed
+
+    def _average(self, samples: deque[float]) -> float:
+        if not samples:
+            return 0.0
+        return sum(samples) / len(samples)
+
+    def _synchronize_device(self) -> None:
+        if (
+            torch is not None
+            and self.device is not None
+            and self.device.type == "cuda"
+            and torch.cuda.is_available()
+        ):
+            torch.cuda.synchronize(self.device)
+
     def _predict_mask(self, crop_bgr: np.ndarray) -> np.ndarray:
         crop_resized = cv2.resize(
             crop_bgr,
@@ -368,12 +467,17 @@ class DefectDetectorNode(Node):
             if hasattr(torch, "amp")
             else nullcontext()
         )
+        self._synchronize_device()
+        inference_start = time.perf_counter()
         with torch.no_grad(), autocast_context:
             logits = self.model(image_tensor)
-            probabilities = (
-                torch.sigmoid(logits).squeeze(0).detach().cpu().numpy()
-            )
+            probabilities_tensor = torch.sigmoid(logits).squeeze(0).detach()
+        self._synchronize_device()
+        self._last_inference_latency_ms = (
+            time.perf_counter() - inference_start
+        ) * 1000.0
 
+        probabilities = probabilities_tensor.cpu().numpy()
         masks = probabilities > MASK_THRESHOLD
         colored_mask = np.zeros(
             (MODEL_INPUT_SIZE[1], MODEL_INPUT_SIZE[0], 3),
