@@ -2,6 +2,28 @@
 
 ROS 2 Jazzy pipeline for flying a DJI Tello EDU manually while detecting and annotating steel surface defects from the live camera stream.
 
+## Project Scope
+The goal of this project is to implement a real-time, aerial-to-desktop computer vision pipeline for automated steel surface inspection. The scope includes:
+
+- Hardware Integration: Establishing a stable video telemetry link between a Tello EDU drone and a desktop host.
+
+- Computer Vision Pipeline: Implementing a ROS 2-based system that captures, pre-filters, and crops drone imagery to isolate target defect regions on an inspection surface.
+
+- Segmentation Inference: Executing a fine-tuned PyTorch model to perform semantic segmentation on captured defect regions, providing pixel-perfect localization of surface anomalies.
+
+- Annotation/Visualization: Real-time generation of color-coded masks to visualize detected defects on a live video stream.
+
+## Project Limitations
+- Classification Accuracy: While the pipeline successfully achieves major defect localization and segmentation, it currently demonstrates insufficient performance in multi-class defect classification. The model struggles to reliably differentiate between specific defect sub-types of 4 classes.
+
+- Domain Adaptation: The model was trained on high-resolution industrial sensor data; performance is degraded when inspecting printed test patterns on physical walls due to the inherent loss of contrast and the presence of paper texture, glare, and compression artifacts.
+
+- Motion Blur and Drift: In-flight performance is constrained by the Tello EDU's optical flow stability. Featureless backgrounds or rapid drone movement may result in motion blur, limiting the resolution of captured defect imagery.
+
+- Network Latency: The system relies on a 2.4GHz Wi-Fi link. Real-time inference performance is bound by network-induced packet loss and the inherent latency of the UDP-based H.264 video feed.
+
+- Lighting Sensitivity: The segmentation pipeline relies on the contrast difference between the inspection target and the mounting wall. Variable ambient lighting significantly impacts detection stability.
+
 ## Workspace Setup
 
 Run from the workspace directory:
