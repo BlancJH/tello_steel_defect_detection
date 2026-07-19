@@ -24,6 +24,9 @@ The goal of this project is to implement a real-time, aerial-to-desktop computer
 
 - Lighting Sensitivity: The segmentation pipeline relies on the contrast difference between the inspection target and the mounting wall. Variable ambient lighting significantly impacts detection stability.
 
+## System Architecture
+![System Architecture](source/images/tello_defect_detection_system_architecture.png)
+
 ## Workspace Setup
 
 Run from the workspace directory:
