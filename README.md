@@ -4,6 +4,31 @@
 
 ROS 2 Jazzy pipeline for flying a DJI Tello EDU manually while detecting and annotating steel surface defects from the live camera stream.
 
+## Table of Contents
+- [Project Scope](#project-scope)
+- [Project Limitations](#project-limitations)
+- [System Architecture](#system-architecture)
+- [Reproducibility](#reproducibility)
+  - [Tested Environment](#tested-environment)
+  - [Clean Clone Setup](#clean-clone-setup)
+  - [Model Checkpoint](#model-checkpoint)
+- [Model Documentation](#model-documentation)
+  - [Dataset and Task](#dataset-and-task)
+  - [Runtime Model Configuration](#runtime-model-configuration)
+  - [Training Source](#training-source)
+  - [Expected Model Limitations](#expected-model-limitations)
+- [Workspace Setup](#workspace-setup)
+- [Primary Startup](#primary-startup)
+- [Configuration](#configuration)
+- [ROS 2 Launch Files](#ros-2-launch-files)
+- [Runtime Benchmarking](#runtime-benchmarking)
+- [Debugging Commands](#debugging-commands)
+- [Custom Keyboard Teleoperation](#custom-keyboard-teleoperation)
+- [Standard Keyboard Teleoperation](#standard-keyboard-teleoperation)
+- [Optional Gamepad Teleoperation](#optional-gamepad-teleoperation)
+- [Manual Scanning Workflow](#manual-scanning-workflow)
+- [Safety Notes](#safety-notes)
+
 ## Project Scope
 The goal of this project is to implement a real-time, aerial-to-desktop computer vision pipeline for automated steel surface inspection. The scope includes:
 
