@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  ros2-jazzy:
+    name: Python, Pytest, ROS 2 Build
+    runs-on: ubuntu-24.04
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: tello_ws
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Setup ROS 2 Jazzy
+        uses: ros-tooling/setup-ros@v0.7
+        with:
+          required-ros-distributions: jazzy
+
+      - name: Install ROS package dependencies
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          sudo apt-get update
+          rosdep update
+          rosdep install --from-paths src --ignore-src --rosdistro jazzy -r -y
+          sudo apt-get install -y python3-pytest python3-yaml python3-numpy python3-opencv
+
+      - name: Python syntax check
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          python3 -m py_compile \
+            src/tello_defect_pipeline/tello_defect_pipeline/defect_detector_node.py \
+            src/tello_defect_pipeline/tello_defect_pipeline/tello_bridge_node.py \
+            src/tello_defect_pipeline/tello_defect_pipeline/tello_keyboard_controller_node.py \
+            src/tello_defect_pipeline/launch/detector.launch.py \
+            src/tello_defect_pipeline/launch/live_pipeline.launch.py \
+            src/tello_defect_pipeline/launch/teleop.launch.py \
+            src/tello_defect_pipeline/launch/visualization.launch.py
+
+      - name: ROS 2 package build
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          colcon build --symlink-install --packages-select tello_defect_pipeline
+
+      - name: Pytest
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          source install/setup.bash
+          pytest src/tello_defect_pipeline/test
+
+      - name: ROS 2 package tests
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          colcon test --packages-select tello_defect_pipeline --event-handlers console_direct+
+          colcon test-result --verbose
