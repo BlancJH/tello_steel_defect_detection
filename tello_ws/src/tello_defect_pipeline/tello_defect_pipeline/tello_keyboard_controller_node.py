@@ -69,25 +69,41 @@ class TelloKeyboardControllerNode(Node):
     def __init__(self) -> None:
         super().__init__("tello_keyboard_controller_node")
 
+        self.declare_parameter("cmd_vel_topic", "/cmd_vel")
+        self.declare_parameter("takeoff_topic", "/tello/takeoff")
+        self.declare_parameter("land_topic", "/tello/land")
+        self.declare_parameter("qos_depth", 10)
         self.declare_parameter("linear_speed", 0.35)
         self.declare_parameter("vertical_speed", 0.45)
         self.declare_parameter("yaw_speed", 0.55)
-        self.declare_parameter("publish_rate", 20.0)
+        self.declare_parameter("publish_rate_hz", 20.0)
         self.declare_parameter("movement_timeout", 0.25)
+        self.declare_parameter("key_read_spin_timeout_sec", 0.01)
+        self.declare_parameter("key_read_timeout_sec", 0.05)
 
+        cmd_vel_topic = self.get_parameter("cmd_vel_topic").value
+        takeoff_topic = self.get_parameter("takeoff_topic").value
+        land_topic = self.get_parameter("land_topic").value
+        qos_depth = int(self.get_parameter("qos_depth").value)
         self.linear_speed = self.get_parameter("linear_speed").value
         self.vertical_speed = self.get_parameter("vertical_speed").value
         self.yaw_speed = self.get_parameter("yaw_speed").value
-        publish_rate = self.get_parameter("publish_rate").value
+        publish_rate_hz = float(self.get_parameter("publish_rate_hz").value)
         self.movement_timeout = self.get_parameter("movement_timeout").value
+        self.key_read_spin_timeout_sec = float(
+            self.get_parameter("key_read_spin_timeout_sec").value
+        )
+        self.key_read_timeout_sec = float(
+            self.get_parameter("key_read_timeout_sec").value
+        )
 
-        self.cmd_publisher = self.create_publisher(Twist, "/cmd_vel", 10)
-        self.takeoff_publisher = self.create_publisher(Empty, "/tello/takeoff", 10)
-        self.land_publisher = self.create_publisher(Empty, "/tello/land", 10)
+        self.cmd_publisher = self.create_publisher(Twist, cmd_vel_topic, qos_depth)
+        self.takeoff_publisher = self.create_publisher(Empty, takeoff_topic, qos_depth)
+        self.land_publisher = self.create_publisher(Empty, land_topic, qos_depth)
         self.current_command = VelocityCommand()
         self.last_movement_time: Optional[float] = None
         self.timer = self.create_timer(
-            1.0 / publish_rate,
+            1.0 / publish_rate_hz,
             self.publish_current_command,
         )
 
@@ -173,8 +189,8 @@ def main(args: Optional[list[str]] = None) -> None:
         with RawTerminal() as terminal:
             running = True
             while rclpy.ok() and running:
-                rclpy.spin_once(node, timeout_sec=0.01)
-                key = terminal.read_key(timeout_sec=0.05)
+                rclpy.spin_once(node, timeout_sec=node.key_read_spin_timeout_sec)
+                key = terminal.read_key(timeout_sec=node.key_read_timeout_sec)
                 if key is not None:
                     running = node.handle_key(key)
     except KeyboardInterrupt:

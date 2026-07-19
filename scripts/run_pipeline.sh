@@ -14,16 +14,14 @@ if [[ -f "$ENV_FILE" ]]; then
   set +a
 fi
 
-MODEL_PATH="${MODEL_PATH:-$WS_DIR/src/tello_defect_pipeline/models/model.pth}"
-if [[ "$MODEL_PATH" != /* ]]; then
-  MODEL_PATH="$REPO_ROOT/$MODEL_PATH"
+CONFIG_FILE="${CONFIG_FILE:-$WS_DIR/src/tello_defect_pipeline/config/pipeline.yaml}"
+if [[ "$CONFIG_FILE" != /* ]]; then
+  CONFIG_FILE="$REPO_ROOT/$CONFIG_FILE"
 fi
 
 if [[ "$VENV_DIR" != /* ]]; then
   VENV_DIR="$REPO_ROOT/$VENV_DIR"
 fi
-
-MOVEMENT_TIMEOUT="${MOVEMENT_TIMEOUT:-0.25}"
 
 require_file() {
   local path="$1"
@@ -36,7 +34,7 @@ require_file() {
 
 require_file "$ROS_SETUP" "ROS setup file"
 require_file "$WS_DIR/install/setup.bash" "workspace install setup file. Run colcon build first"
-require_file "$MODEL_PATH" "model weights"
+require_file "$CONFIG_FILE" "ROS parameter config file"
 
 setup_lines() {
   cat <<EOF
@@ -89,24 +87,12 @@ exec bash -i"
 }
 
 open_terminal \
-  "Tello Bridge" \
-  "ros2 run tello_defect_pipeline tello_bridge_node"
-
-sleep 1
-
-open_terminal \
-  "Defect Detector" \
-  "ros2 run tello_defect_pipeline defect_detector_node --ros-args -p model_path:='$MODEL_PATH'"
-
-sleep 1
-
-open_terminal \
-  "Annotated Image View" \
-  "ros2 run rqt_image_view rqt_image_view /defect_detections/image"
+  "Tello Live Pipeline" \
+  "ros2 launch tello_defect_pipeline live_pipeline.launch.py config_file:='$CONFIG_FILE' use_keyboard:=false"
 
 sleep 1
 
 open_terminal \
   "Tello Keyboard Controller" \
-  "ros2 run tello_defect_pipeline tello_keyboard_controller_node --ros-args -p movement_timeout:=$MOVEMENT_TIMEOUT"
+  "ros2 launch tello_defect_pipeline teleop.launch.py config_file:='$CONFIG_FILE'"
 

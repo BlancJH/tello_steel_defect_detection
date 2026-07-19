@@ -25,11 +25,6 @@ def _bgr_frame_to_image_msg(frame) -> Image:
     return msg
 
 
-def _clamp_rc(value: float) -> int:
-    """Convert a normalized velocity command to a Tello RC value."""
-    return max(-100, min(100, int(value * 100)))
-
-
 class TelloBridgeNode(Node):
     """Publish Tello camera frames and forward Twist commands to RC control."""
 
@@ -40,28 +35,58 @@ class TelloBridgeNode(Node):
         self.frame_reader = None
         self.is_airborne = False
 
-        self.image_publisher = self.create_publisher(Image, "/camera/image_raw", 10)
+        self.declare_parameter("image_topic", "/camera/image_raw")
+        self.declare_parameter("cmd_vel_topic", "/cmd_vel")
+        self.declare_parameter("takeoff_topic", "/tello/takeoff")
+        self.declare_parameter("land_topic", "/tello/land")
+        self.declare_parameter("camera_frame_id", "tello_camera")
+        self.declare_parameter("publish_rate_hz", 30.0)
+        self.declare_parameter("qos_depth", 10)
+        self.declare_parameter("rc_scale", 100.0)
+        self.declare_parameter("rc_min", -100)
+        self.declare_parameter("rc_max", 100)
+        self.declare_parameter("empty_frame_log_throttle_sec", 5.0)
+
+        image_topic = self.get_parameter("image_topic").value
+        cmd_vel_topic = self.get_parameter("cmd_vel_topic").value
+        takeoff_topic = self.get_parameter("takeoff_topic").value
+        land_topic = self.get_parameter("land_topic").value
+        self.camera_frame_id = self.get_parameter("camera_frame_id").value
+        publish_rate_hz = float(self.get_parameter("publish_rate_hz").value)
+        qos_depth = int(self.get_parameter("qos_depth").value)
+        self.rc_scale = float(self.get_parameter("rc_scale").value)
+        self.rc_min = int(self.get_parameter("rc_min").value)
+        self.rc_max = int(self.get_parameter("rc_max").value)
+        self.empty_frame_log_throttle_sec = float(
+            self.get_parameter("empty_frame_log_throttle_sec").value
+        )
+
+        self.image_publisher = self.create_publisher(Image, image_topic, qos_depth)
         self.cmd_subscription = self.create_subscription(
             Twist,
-            "/cmd_vel",
+            cmd_vel_topic,
             self.cmd_vel_callback,
-            10,
+            qos_depth,
         )
         self.takeoff_subscription = self.create_subscription(
             Empty,
-            "/tello/takeoff",
+            takeoff_topic,
             self.takeoff_callback,
-            10,
+            qos_depth,
         )
         self.land_subscription = self.create_subscription(
             Empty,
-            "/tello/land",
+            land_topic,
             self.land_callback,
-            10,
+            qos_depth,
         )
-        self.timer = self.create_timer(1.0 / 30.0, self.publish_frame)
+        self.timer = self.create_timer(1.0 / publish_rate_hz, self.publish_frame)
 
         self.connect_tello()
+
+    def _clamp_rc(self, value: float) -> int:
+        """Convert a normalized velocity command to a Tello RC value."""
+        return max(self.rc_min, min(self.rc_max, int(value * self.rc_scale)))
 
     def connect_tello(self) -> None:
         """Connect to the drone and start the video stream."""
@@ -82,13 +107,13 @@ class TelloBridgeNode(Node):
         if frame is None:
             self.get_logger().warn(
                 "Received an empty Tello frame.",
-                throttle_duration_sec=5.0,
+                throttle_duration_sec=self.empty_frame_log_throttle_sec,
             )
             return
 
         image_msg = _bgr_frame_to_image_msg(frame)
         image_msg.header.stamp = self.get_clock().now().to_msg()
-        image_msg.header.frame_id = "tello_camera"
+        image_msg.header.frame_id = self.camera_frame_id
         self.image_publisher.publish(image_msg)
 
     def cmd_vel_callback(self, msg: Twist) -> None:
@@ -100,10 +125,10 @@ class TelloBridgeNode(Node):
         if not self.is_airborne:
             return
 
-        left_right = -_clamp_rc(msg.linear.y)
-        forward_back = _clamp_rc(msg.linear.x)
-        up_down = _clamp_rc(msg.linear.z)
-        yaw = -_clamp_rc(msg.angular.z)
+        left_right = -self._clamp_rc(msg.linear.y)
+        forward_back = self._clamp_rc(msg.linear.x)
+        up_down = self._clamp_rc(msg.linear.z)
+        yaw = -self._clamp_rc(msg.angular.z)
 
         self.tello.send_rc_control(left_right, forward_back, up_down, yaw)
 

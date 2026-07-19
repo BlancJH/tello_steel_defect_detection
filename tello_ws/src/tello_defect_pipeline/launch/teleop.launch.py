@@ -1,8 +1,9 @@
-"""Launch keyboard teleoperation for the Tello pipeline."""
+"""Launch keyboard teleoperation with YAML configuration."""
 
 from pathlib import Path
 import os
 
+from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
@@ -26,9 +27,14 @@ def _venv_pythonpath_env():
     return {}
 
 
+def _default_config_path():
+    package_share = Path(get_package_share_directory("tello_defect_pipeline"))
+    return str(package_share / "config" / "pipeline.yaml")
+
+
 def generate_launch_description():
     return LaunchDescription([
-        DeclareLaunchArgument("movement_timeout", default_value="0.25", description="Seconds before movement command returns to hover after key release."),
+        DeclareLaunchArgument("config_file", default_value=_default_config_path(), description="Path to the ROS parameter YAML file."),
         Node(
             package="tello_defect_pipeline",
             executable="tello_keyboard_controller_node",
@@ -36,8 +42,6 @@ def generate_launch_description():
             output="screen",
             emulate_tty=True,
             additional_env=_venv_pythonpath_env(),
-            parameters=[{
-                "movement_timeout": LaunchConfiguration("movement_timeout"),
-            }],
+            parameters=[LaunchConfiguration("config_file")],
         ),
     ])

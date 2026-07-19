@@ -33,23 +33,6 @@ else:
     IMPORT_ERROR = None
 
 
-MODEL_INPUT_SIZE = (800, 256)
-TARGET_ASPECT_MIN = 5.0
-TARGET_ASPECT_MAX = 7.5
-MASK_THRESHOLD = 0.5
-OVERLAY_ALPHA = 0.45
-DEFAULT_BENCHMARK_WINDOW = 60
-DEFAULT_BENCHMARK_LOG_INTERVAL_SEC = 5.0
-CLASS_COLORS = np.array(
-    [
-        (0, 0, 255),
-        (0, 165, 255),
-        (0, 255, 255),
-        (255, 0, 0),
-    ],
-    dtype=np.uint8,
-)
-
 
 def _image_msg_to_bgr_frame(msg: Image) -> np.ndarray:
     """Convert bgr8/rgb8 ROS Image data into a BGR OpenCV frame."""
@@ -110,36 +93,79 @@ class DefectDetectorNode(Node):
         self.declare_parameter("model_path", _default_model_path())
         default_device = self._default_device_name()
         self.declare_parameter("device", default_device)
+        self.declare_parameter("input_image_topic", "/camera/image_raw")
+        self.declare_parameter("output_image_topic", "/defect_detections/image")
+        self.declare_parameter("qos_depth", 10)
+        self.declare_parameter("model_input_width", 800)
+        self.declare_parameter("model_input_height", 256)
+        self.declare_parameter("model_encoder_name", "mit_b2")
+        self.declare_parameter("model_encoder_weights", "")
+        self.declare_parameter("model_in_channels", 3)
+        self.declare_parameter("defect_classes", 4)
+        self.declare_parameter("mask_threshold", 0.5)
+        self.declare_parameter("overlay_alpha", 0.45)
+        self.declare_parameter(
+            "class_colors_bgr",
+            [0, 0, 255, 0, 165, 255, 0, 255, 255, 255, 0, 0],
+        )
+        self.declare_parameter("image_mean_rgb", [0.485, 0.456, 0.406])
+        self.declare_parameter("image_std_rgb", [0.229, 0.224, 0.225])
+        self.declare_parameter("target_aspect_min", 5.0)
+        self.declare_parameter("target_aspect_max", 7.5)
+        self.declare_parameter("min_target_area_ratio", 0.02)
+        self.declare_parameter("gaussian_kernel_size", 7)
+        self.declare_parameter("morph_kernel_width", 7)
+        self.declare_parameter("morph_kernel_height", 7)
         self.declare_parameter("benchmark_enabled", True)
-        self.declare_parameter(
-            "benchmark_window",
-            DEFAULT_BENCHMARK_WINDOW,
-        )
-        self.declare_parameter(
-            "benchmark_log_interval_sec",
-            DEFAULT_BENCHMARK_LOG_INTERVAL_SEC,
-        )
+        self.declare_parameter("benchmark_window", 60)
+        self.declare_parameter("benchmark_log_interval_sec", 5.0)
 
-        self.model_path = (
+        self.model_path = self._resolve_model_path(
             self.get_parameter("model_path").get_parameter_value().string_value
         )
         device_name = self.get_parameter("device").get_parameter_value().string_value
-        self.benchmark_enabled = (
-            self.get_parameter("benchmark_enabled")
-            .get_parameter_value()
-            .bool_value
+        self.input_image_topic = self.get_parameter("input_image_topic").value
+        self.output_image_topic = self.get_parameter("output_image_topic").value
+        self.qos_depth = int(self.get_parameter("qos_depth").value)
+        model_input_width = int(self.get_parameter("model_input_width").value)
+        model_input_height = int(self.get_parameter("model_input_height").value)
+        self.model_input_size = (model_input_width, model_input_height)
+        self.model_encoder_name = self.get_parameter("model_encoder_name").value
+        model_encoder_weights = self.get_parameter("model_encoder_weights").value
+        self.model_encoder_weights = model_encoder_weights or None
+        self.model_in_channels = int(self.get_parameter("model_in_channels").value)
+        self.defect_classes = int(self.get_parameter("defect_classes").value)
+        self.mask_threshold = float(self.get_parameter("mask_threshold").value)
+        self.overlay_alpha = float(self.get_parameter("overlay_alpha").value)
+        self.class_colors = self._parse_class_colors(
+            self.get_parameter("class_colors_bgr").value
         )
+        self.image_mean_rgb = [
+            float(value) for value in self.get_parameter("image_mean_rgb").value
+        ]
+        self.image_std_rgb = [
+            float(value) for value in self.get_parameter("image_std_rgb").value
+        ]
+        self.target_aspect_min = float(self.get_parameter("target_aspect_min").value)
+        self.target_aspect_max = float(self.get_parameter("target_aspect_max").value)
+        self.min_target_area_ratio = float(
+            self.get_parameter("min_target_area_ratio").value
+        )
+        self.gaussian_kernel_size = self._odd_kernel_size(
+            int(self.get_parameter("gaussian_kernel_size").value)
+        )
+        self.morph_kernel_size = (
+            int(self.get_parameter("morph_kernel_width").value),
+            int(self.get_parameter("morph_kernel_height").value),
+        )
+        self.benchmark_enabled = bool(self.get_parameter("benchmark_enabled").value)
         self.benchmark_window = max(
             1,
-            self.get_parameter("benchmark_window")
-            .get_parameter_value()
-            .integer_value,
+            int(self.get_parameter("benchmark_window").value),
         )
         self.benchmark_log_interval_sec = max(
             0.5,
-            self.get_parameter("benchmark_log_interval_sec")
-            .get_parameter_value()
-            .double_value,
+            float(self.get_parameter("benchmark_log_interval_sec").value),
         )
         self._latency_samples_ms: deque[float] = deque(
             maxlen=self.benchmark_window
@@ -157,15 +183,44 @@ class DefectDetectorNode(Node):
 
         self.image_subscription = self.create_subscription(
             Image,
-            "/camera/image_raw",
+            self.input_image_topic,
             self.image_callback,
-            10,
+            self.qos_depth,
         )
         self.image_publisher = self.create_publisher(
             Image,
-            "/defect_detections/image",
-            10,
+            self.output_image_topic,
+            self.qos_depth,
         )
+
+    def _resolve_model_path(self, model_path: str) -> str:
+        path = Path(model_path).expanduser()
+        if path.is_absolute():
+            return str(path)
+
+        cwd_path = Path.cwd() / path
+        if cwd_path.exists():
+            return str(cwd_path)
+
+        package_model_path = Path(_default_model_path())
+        if path.name == package_model_path.name:
+            return str(package_model_path)
+
+        return str(path)
+
+    def _parse_class_colors(self, values: list[int]) -> np.ndarray:
+        colors = np.array([int(value) for value in values], dtype=np.uint8)
+        if colors.size != self.defect_classes * 3:
+            raise ValueError(
+                "class_colors_bgr must contain 3 values for each defect class."
+            )
+        return colors.reshape((self.defect_classes, 3))
+
+    def _odd_kernel_size(self, value: int) -> int:
+        value = max(1, value)
+        if value % 2 == 0:
+            value += 1
+        return value
 
     def _default_device_name(self) -> str:
         if torch is not None and torch.cuda.is_available():
@@ -197,17 +252,17 @@ class DefectDetectorNode(Node):
                 [
                     transforms.ToTensor(),
                     transforms.Normalize(
-                        mean=[0.485, 0.456, 0.406],
-                        std=[0.229, 0.224, 0.225],
+                        mean=self.image_mean_rgb,
+                        std=self.image_std_rgb,
                     ),
                 ]
             )
 
             self.model = smp.FPN(
-                encoder_name="mit_b2",
-                encoder_weights=None,
-                in_channels=3,
-                classes=4,
+                encoder_name=self.model_encoder_name,
+                encoder_weights=self.model_encoder_weights,
+                in_channels=self.model_in_channels,
+                classes=self.defect_classes,
             )
             self.model.to(self.device)
             self._load_model_weights(Path(self.model_path))
@@ -337,7 +392,7 @@ class DefectDetectorNode(Node):
                     annotated[y : y + height, x : x + width],
                     1.0,
                     resized_mask,
-                    OVERLAY_ALPHA,
+                    self.overlay_alpha,
                     0.0,
                 )
                 annotated[y : y + height, x : x + width] = blended_crop
@@ -368,14 +423,18 @@ class DefectDetectorNode(Node):
         frame: np.ndarray,
     ) -> Optional[tuple[int, int, int, int]]:
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        blurred = cv2.GaussianBlur(gray, (7, 7), 0)
+        blurred = cv2.GaussianBlur(
+            gray,
+            (self.gaussian_kernel_size, self.gaussian_kernel_size),
+            0,
+        )
         _, thresholded = cv2.threshold(
             blurred,
             0,
             255,
             cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU,
         )
-        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (7, 7))
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, self.morph_kernel_size)
         thresholded = cv2.morphologyEx(thresholded, cv2.MORPH_CLOSE, kernel)
 
         contours, _ = cv2.findContours(
@@ -389,7 +448,7 @@ class DefectDetectorNode(Node):
         frame_area = frame.shape[0] * frame.shape[1]
         for contour in sorted(contours, key=cv2.contourArea, reverse=True):
             area = cv2.contourArea(contour)
-            if area < frame_area * 0.02:
+            if area < frame_area * self.min_target_area_ratio:
                 continue
 
             x, y, width, height = cv2.boundingRect(contour)
@@ -397,7 +456,7 @@ class DefectDetectorNode(Node):
                 continue
 
             aspect_ratio = width / float(height)
-            if TARGET_ASPECT_MIN <= aspect_ratio <= TARGET_ASPECT_MAX:
+            if self.target_aspect_min <= aspect_ratio <= self.target_aspect_max:
                 return (x, y, width, height)
 
         return None
@@ -456,7 +515,7 @@ class DefectDetectorNode(Node):
     def _predict_mask(self, crop_bgr: np.ndarray) -> np.ndarray:
         crop_resized = cv2.resize(
             crop_bgr,
-            MODEL_INPUT_SIZE,
+            self.model_input_size,
             interpolation=cv2.INTER_AREA,
         )
         crop_rgb = cv2.cvtColor(crop_resized, cv2.COLOR_BGR2RGB)
@@ -478,12 +537,12 @@ class DefectDetectorNode(Node):
         ) * 1000.0
 
         probabilities = probabilities_tensor.cpu().numpy()
-        masks = probabilities > MASK_THRESHOLD
+        masks = probabilities > self.mask_threshold
         colored_mask = np.zeros(
-            (MODEL_INPUT_SIZE[1], MODEL_INPUT_SIZE[0], 3),
+            (self.model_input_size[1], self.model_input_size[0], 3),
             dtype=np.uint8,
         )
-        for class_index, color in enumerate(CLASS_COLORS):
+        for class_index, color in enumerate(self.class_colors):
             colored_mask[masks[class_index]] = color
 
         return colored_mask

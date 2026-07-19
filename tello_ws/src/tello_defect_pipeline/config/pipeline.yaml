@@ -1,0 +1,58 @@
+tello_bridge_node:
+  ros__parameters:
+    image_topic: /camera/image_raw
+    cmd_vel_topic: /cmd_vel
+    takeoff_topic: /tello/takeoff
+    land_topic: /tello/land
+    camera_frame_id: tello_camera
+    publish_rate_hz: 30.0
+    qos_depth: 10
+    rc_scale: 100.0
+    rc_min: -100
+    rc_max: 100
+    empty_frame_log_throttle_sec: 5.0
+
+defect_detector_node:
+  ros__parameters:
+    model_path: src/tello_defect_pipeline/models/model.pth
+    device: ''
+    input_image_topic: /camera/image_raw
+    output_image_topic: /defect_detections/image
+    qos_depth: 10
+
+    model_input_width: 800
+    model_input_height: 256
+    model_encoder_name: mit_b2
+    model_encoder_weights: ''
+    model_in_channels: 3
+    defect_classes: 4
+    mask_threshold: 0.5
+    overlay_alpha: 0.45
+    class_colors_bgr: [0, 0, 255, 0, 165, 255, 0, 255, 255, 255, 0, 0]
+    image_mean_rgb: [0.485, 0.456, 0.406]
+    image_std_rgb: [0.229, 0.224, 0.225]
+
+    target_aspect_min: 5.0
+    target_aspect_max: 7.5
+    min_target_area_ratio: 0.02
+    gaussian_kernel_size: 7
+    morph_kernel_width: 7
+    morph_kernel_height: 7
+
+    benchmark_enabled: true
+    benchmark_window: 60
+    benchmark_log_interval_sec: 5.0
+
+tello_keyboard_controller_node:
+  ros__parameters:
+    cmd_vel_topic: /cmd_vel
+    takeoff_topic: /tello/takeoff
+    land_topic: /tello/land
+    qos_depth: 10
+    linear_speed: 0.35
+    vertical_speed: 0.45
+    yaw_speed: 0.55
+    publish_rate_hz: 20.0
+    movement_timeout: 0.25
+    key_read_spin_timeout_sec: 0.01
+    key_read_timeout_sec: 0.05

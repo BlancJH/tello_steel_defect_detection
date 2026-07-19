@@ -1,4 +1,4 @@
-"""Launch the defect detector node with benchmark parameters."""
+"""Launch the defect detector node with YAML configuration."""
 
 from pathlib import Path
 import os
@@ -27,32 +27,20 @@ def _venv_pythonpath_env():
     return {}
 
 
-def _default_model_path():
+def _default_config_path():
     package_share = Path(get_package_share_directory("tello_defect_pipeline"))
-    return str(package_share / "models" / "model.pth")
+    return str(package_share / "config" / "pipeline.yaml")
 
 
 def generate_launch_description():
-    venv_env = _venv_pythonpath_env()
-
     return LaunchDescription([
-        DeclareLaunchArgument("model_path", default_value=_default_model_path(), description="Absolute path to the PyTorch model checkpoint."),
-        DeclareLaunchArgument("device", default_value="", description="Inference device: cuda, cpu, or empty for automatic selection."),
-        DeclareLaunchArgument("benchmark_enabled", default_value="true", description="Enable rolling FPS and latency benchmark logs."),
-        DeclareLaunchArgument("benchmark_window", default_value="60", description="Number of frames used for rolling benchmark statistics."),
-        DeclareLaunchArgument("benchmark_log_interval_sec", default_value="5.0", description="Seconds between benchmark log messages."),
+        DeclareLaunchArgument("config_file", default_value=_default_config_path(), description="Path to the ROS parameter YAML file."),
         Node(
             package="tello_defect_pipeline",
             executable="defect_detector_node",
             name="defect_detector_node",
             output="screen",
-            additional_env=venv_env,
-            parameters=[{
-                "model_path": LaunchConfiguration("model_path"),
-                "device": LaunchConfiguration("device"),
-                "benchmark_enabled": LaunchConfiguration("benchmark_enabled"),
-                "benchmark_window": LaunchConfiguration("benchmark_window"),
-                "benchmark_log_interval_sec": LaunchConfiguration("benchmark_log_interval_sec"),
-            }],
+            additional_env=_venv_pythonpath_env(),
+            parameters=[LaunchConfiguration("config_file")],
         ),
     ])
