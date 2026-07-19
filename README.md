@@ -182,6 +182,58 @@ cp .env.example .env
 
 Then edit values such as `MODEL_PATH` or `MOVEMENT_TIMEOUT`.
 
+## Runtime Benchmarking
+
+`defect_detector_node` logs rolling runtime benchmarks while it is running. Benchmarking is enabled by default and reports the active device, annotated output FPS, end-to-end detection latency, and model inference latency.
+
+Run with the default device selection, which uses CUDA when available and falls back to CPU:
+
+```bash
+ros2 run tello_defect_pipeline defect_detector_node --ros-args -p model_path:=/absolute/path/to/model.pth
+```
+
+Force GPU benchmarking:
+
+```bash
+ros2 run tello_defect_pipeline defect_detector_node --ros-args -p device:=cuda -p model_path:=/absolute/path/to/model.pth
+```
+
+Force CPU benchmarking, if you want a baseline comparison:
+
+```bash
+ros2 run tello_defect_pipeline defect_detector_node --ros-args -p device:=cpu -p model_path:=/absolute/path/to/model.pth
+```
+
+Tune the rolling benchmark window and log interval:
+
+```bash
+ros2 run tello_defect_pipeline defect_detector_node --ros-args \
+  -p model_path:=/absolute/path/to/model.pth \
+  -p benchmark_window:=120 \
+  -p benchmark_log_interval_sec:=10.0
+```
+
+Example log output:
+
+```text
+Benchmark device=cuda published_fps=30.02 avg_detection_latency_ms=12.0 max_detection_latency_ms=35.5 avg_inference_latency_ms=5.9 max_inference_latency_ms=7.3 samples=60
+```
+
+Observed CUDA benchmark with `models/model.pth`:
+
+| Run segment | Published FPS | Avg detection latency | Max detection latency | Avg inference latency | Max inference latency |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Sustained 30 FPS windows | 29.99 FPS avg, 29.84-30.17 FPS range | 5.8 ms avg | 35.5 ms peak | 6.3 ms avg | 9.1 ms peak |
+
+The first startup window reported 5.44 FPS and the final interrupted window reported 6.12 FPS which are taking off and landing. Those transient windows were excluded from the sustained FPS summary above. Early windows can also report `avg_inference_latency_ms=0.0` when no model inference has been triggered inside the rolling benchmark window.
+
+Metric meanings:
+
+- `published_fps`: rolling FPS of annotated frames published to `/defect_detections/image`.
+- `avg_detection_latency_ms`: average callback time from receiving a ROS image to publishing the annotated output.
+- `avg_inference_latency_ms`: average PyTorch model inference time only. CUDA is synchronized before and after inference so GPU timing is not underreported.
+- `max_*_latency_ms`: worst latency observed inside the rolling benchmark window.
+
 ## Run The Pipeline
 
 Use separate terminals for each long-running command. Source the workspace setup in every terminal.
