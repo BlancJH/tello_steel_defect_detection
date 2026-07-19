@@ -226,3 +226,8 @@ tello_ws/log/
 
 # Trained model weights
 tello_ws/src/tello_defect_pipeline/models/*.pth
+
+# not ready
+*/run_offline_segmentation.py
+*/test_data/
+*/test_outputs/
