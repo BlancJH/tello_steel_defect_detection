@@ -1,8 +1,6 @@
 # tello_steel_defect_detection
 
-<video src="https://github.com/BlancJH/tello_steel_defect_detection/raw/main/source/video/tello_defect_detection.mp4" width="100%" controls>
-  Your browser does not support the video tag.
-</video>
+https://github.com/user-attachments/assets/e4da3293-6f2a-4cca-bbc7-f2a56abfc376
 
 ROS 2 Jazzy pipeline for flying a DJI Tello EDU manually while detecting and annotating steel surface defects from the live camera stream.
 
