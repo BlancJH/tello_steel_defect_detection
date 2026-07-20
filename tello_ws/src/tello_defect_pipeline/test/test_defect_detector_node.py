@@ -1,5 +1,7 @@
 import numpy as np
 import pytest
+
+from tello_defect_pipeline import defect_detector_node as detector_module
 from sensor_msgs.msg import Image
 
 from tello_defect_pipeline.defect_detector_node import (
@@ -120,6 +122,26 @@ def test_odd_kernel_size_normalizes_even_and_small_values():
     assert DefectDetectorNode._odd_kernel_size(detector, 6) == 7
     assert DefectDetectorNode._odd_kernel_size(detector, 7) == 7
     assert DefectDetectorNode._odd_kernel_size(detector, 0) == 1
+
+
+def test_callback_latency_synchronizes_before_stopping_timer(monkeypatch):
+    detector = DefectDetectorNode.__new__(DefectDetectorNode)
+    calls = []
+
+    def synchronize_device():
+        calls.append("synchronize")
+
+    def perf_counter():
+        calls.append("timer")
+        return 10.012
+
+    detector._synchronize_device = synchronize_device
+    monkeypatch.setattr(detector_module.time, "perf_counter", perf_counter)
+
+    latency_ms = DefectDetectorNode._callback_latency_ms(detector, 10.0)
+
+    assert calls == ["synchronize", "timer"]
+    assert latency_ms == pytest.approx(12.0)
 
 
 def test_benchmark_average_and_rolling_fps():

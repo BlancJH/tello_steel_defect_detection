@@ -347,7 +347,7 @@ class DefectDetectorNode(Node):
         self.image_publisher.publish(image_msg)
 
         if self.benchmark_enabled:
-            callback_latency_ms = (time.perf_counter() - callback_start) * 1000.0
+            callback_latency_ms = self._callback_latency_ms(callback_start)
             self._record_benchmark_sample(callback_latency_ms)
 
     def process_frame(self, frame: np.ndarray) -> np.ndarray:
@@ -502,6 +502,10 @@ class DefectDetectorNode(Node):
         if not samples:
             return 0.0
         return sum(samples) / len(samples)
+
+    def _callback_latency_ms(self, callback_start: float) -> float:
+        self._synchronize_device()
+        return (time.perf_counter() - callback_start) * 1000.0
 
     def _synchronize_device(self) -> None:
         if (
