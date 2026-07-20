@@ -292,7 +292,7 @@ Observed CUDA benchmark with `models/model.pth`:
 
 | Run segment | Published FPS | Avg detection latency | Max detection latency | Avg inference latency | Max inference latency |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Sustained 30 FPS windows | 29.99 FPS avg, 29.84-30.17 FPS range | 5.8 ms avg | 35.5 ms peak | 6.3 ms avg | 9.1 ms peak |
+| Sustained 30 FPS windows | 29.99 FPS avg, 29.84-30.17 FPS range | 7.09 ms avg | 40.4 ms peak | 6.3 ms avg | 9.1 ms peak |
 
 The first startup window reported 5.44 FPS and the final interrupted window reported 6.12 FPS during startup/shutdown transitions. Those transient windows were excluded from the sustained FPS summary above. Early windows can also report `avg_inference_latency_ms=0.0` when no model inference has been triggered inside the rolling benchmark window.
 
